@@ -3,66 +3,171 @@ import java.io.*;
 public class ClassificationTree {
 	
 	HashMap<String, Integer> classCounts = new HashMap<String, Integer>();
+	HashMap<String, Double> featureEntropies = new HashMap<String, Double>();
 	HashSet<Integer> featuresInPlay = new HashSet<Integer>();
 	ArrayList<String[]> fileAsArray = new ArrayList<String[]>();
+	ArrayList<String[]> testFile = new ArrayList<String[]>();
 	String[] dataSets = {"abalone","car","machine","segmentation", "forest", "wineRed", "wineWhite"};
 	Double totalEntropy = 0.0;
+	Node rootNode = null;
+	
+	
 	public static void main(String[] args) throws IOException {
-		ClassificationTree tree = new ClassificationTree();
-		//for(int i = 0; i < tree.dataSets.length; i++){
+		String[] dataSets = {"abalone","car","machine","segmentation", "forest", "wineRed", "wineWhite"};
+			int[] array = {1,2,3,2,3,1,3};
+			int x = 0;
+			for(int val : array){
+				x^=val;
+				System.out.println(x);
+			}
+			System.out.println(x);
 			String[] setPaths = new String[5];
 			for(int j = 0; j < 5; j++){
-				setPaths[j] = "Data/"+tree.dataSets[0]+"/Set"+(j+1)+".txt";
+				setPaths[j] = "Data/"+dataSets[1]+"/Set"+(j+1)+".txt";
 			}
-			tree.fillFile(setPaths, 0);
-			tree.countClasses();
-			//tree.printClassCounts();
-			tree.calculateTotalEntropy();
-			for(int i = 0; i < tree.fileAsArray.get(0).length-1; i++){
-				HashMap<String, AttributeInfo> map = tree.getAttributeValueOccurences(i);
-				ArrayList<Double> ents = tree.calculateAttributeEntropies(map, i);
-				System.out.println(tree.calculateFeatureEntropy(map,ents));
+			for(int i = 0; i < 5; i++){
+				ClassificationTree tree = new ClassificationTree();
+				tree.initializeTree(setPaths, i);
+				tree.setRootOfTree();
+				tree.generateSubTrees();
+				for(String key : tree.rootNode.children.keySet()){
+					for(String k1 : tree.rootNode.children.get(key).rootNode.children.keySet()){
+						tree.rootNode.children.get(key).rootNode.children.get(k1).generateSubTrees();
+					}
+				}
 			}
-			System.out.println(tree.totalEntropy);
-		//}
 	}
+	
+	
+	public void generateSubTrees(){
+		System.out.print(rootNode.feature +" -> ");
+		for(String key : rootNode.children.keySet()){
+			rootNode.generateNewSubTree(this.fileAsArray, key, this.featuresInPlay);
+			System.out.print(rootNode.children.get(key).rootNode.feature + " ");
+		}
+		System.out.println();
+	}
+	
+	public void initializeTree(String[] paths, int indexToSkip) throws IOException{
+		
+		fillFile(paths, indexToSkip);
+		fillTestFile(paths[indexToSkip]);
+		initializeFeaturesInPlay();
+		countClasses();
+		calculateTotalEntropy();
+		
+	}
+	
+	public void setRootOfTree(){
+		for(int i : featuresInPlay){
+			HashMap<String, AttributeInfo> map = getAttributeValueOccurences(i);
+			ArrayList<Double> ents = calculateAttributeInfo(map, i);
+			featureEntropies.put(Integer.toString(i),calculateFeatureEntropy(map,ents)); //stores feature entropies.
+		}
+		//calculate max gain. feature with max gain is Root. This method should return the same value 
+		//for all cross validation cases.
+		double max = Double.MIN_VALUE;
+		int featureIndex = 0;
+		for(int val : featuresInPlay){
+			double gain = totalEntropy - featureEntropies.get(Integer.toString(val));
+			if(gain > max){
+				max = gain;
+				featureIndex = val;
+			}
+		}
+		//System.out.println("The root of the tree is the feature at index: " + featureIndex);
+		rootNode = new Node(Integer.toString(featureIndex), getAttributeValueOccurences(featureIndex));
+		featuresInPlay.remove(featureIndex);
+		checkLeaves(rootNode);
+	}
+	
+	public void checkLeaves(Node n){
+		HashSet<String> set = new HashSet<String>();
+		for(String key : n.children.keySet()){
+			int i = 0;
+			while(i < testFile.size()){
+				if(testFile.get(i)[Integer.parseInt(n.feature)] == key){
+					if(set.contains(testFile.get(i)[testFile.get(i).length-1])){
+						i++;
+					}else{
+						set.add(testFile.get(i)[testFile.get(i).length-1]);
+						i++;
+					}
+				}
+				i++;
+			}
+			if(set.size() == 1){
+				for(String val : set){
+					n.classifications.put(key, val);
+					n.children.remove(key);
+				}
+				System.out.println(set.size());
+			}
+		}
+	}
+	
+	/**************************************************************
+	 * Calculate entropies for each feature. This calculates the 
+	 * coefficients (ratios in this instance) and dots them with 
+	 * the entropies calculated in calculateAttributeInfo() below.
+	 *************************************************************/
 	
 	public double calculateFeatureEntropy(HashMap<String, AttributeInfo> attrOcc, ArrayList<Double> attrEntropies){
 		Iterator<Map.Entry<String, AttributeInfo>> attrs = attrOcc.entrySet().iterator();
 		ArrayList<Double> ratios = new ArrayList<Double>();
 		while(attrs.hasNext()){
 			Map.Entry<String, AttributeInfo> pair = (Map.Entry<String,AttributeInfo>) attrs.next();
-			ratios.add(((double)pair.getValue().count)/((double)fileAsArray.size()));
+			ratios.add(((double)pair.getValue().count)/((double)fileAsArray.size()));//occurence of attribute value divided by the total size of file.
 		}
-		return dot(ratios,attrEntropies);
+		return dot(ratios,attrEntropies); // dot product of two arrays.
 	}
 	
-	public ArrayList<Double> calculateAttributeEntropies(HashMap<String, AttributeInfo> map, int index){
-		ArrayList<Double> entropies = new ArrayList<Double>();
-		Iterator<Map.Entry<String, AttributeInfo>> attrs = map.entrySet().iterator();
+	/**************************************************************
+	 * Given an index, i, this method calculates the total amount 
+	 * of information an attribute gives in a given feature. For 
+	 * example, given a Feature x and an attribute within that 
+	 * Features set, y, this calculates the sum of the occurences
+	 * of -y/totalOccurences(y)*log_10(y/totalOccurences(y)) as the
+	 * algorithm dictates.
+	 *************************************************************/
+	
+	public ArrayList<Double> calculateAttributeInfo(HashMap<String, AttributeInfo> map, int index){
+		ArrayList<Double> entropies = new ArrayList<Double>(); // entropies is a misnomer. this actually calculates the INFORMATION for each attribtue within a feature
+		Iterator<Map.Entry<String, AttributeInfo>> attrs = map.entrySet().iterator(); // Iterator for hashmap
 		while(attrs.hasNext()){
-			Double entropy = 0.0;
-			Map.Entry<String, AttributeInfo> attrCount = (Map.Entry<String,AttributeInfo>) attrs.next();
-			Iterator<Map.Entry<String, Integer>> classes = classCounts.entrySet().iterator();
+			Double entropy = 0.0; // Information not entropy.
+			Map.Entry<String, AttributeInfo> attrCount = (Map.Entry<String,AttributeInfo>) attrs.next(); // total occurence for attribtue value.
+			Iterator<Map.Entry<String, Integer>> classes = classCounts.entrySet().iterator(); //iterate through class values.
 			while(classes.hasNext()){
 				double count = 0;
 				Map.Entry<String, Integer> pair = (Map.Entry<String,Integer>) classes.next();
 				for(String[] arr : fileAsArray){
+					//if the class in the file is equal to the class in the current hashmap iteration AND the value at the array index is equal to the attribute value.
 					if(arr[arr.length-1].equalsIgnoreCase(pair.getKey()) && arr[index].equalsIgnoreCase(attrCount.getValue().value)){
-						count++;
+						count++; //increment count.
 					}
 				}
-				double val = ((-1)*((double)count)/((double)attrCount.getValue().count));
+				double val = (((double)count)/((double)attrCount.getValue().count)); //calculate probability of attribute.
 				if(val == 0){
 					continue;
 				}
-				double log = Math.log((-1.0)*val)/Math.log(2);
-				entropy+=(val*log);
+				double log = Math.log(val)/Math.log(2.0); //get log_10 of value
+				entropy-=(val*log); //add (subtract negative) them together.
 			}
-			entropies.add(entropy);
+			entropies.add(entropy); // stores Information for each attribute value for each class.
 		}
 		return entropies;
 	}
+	
+	/**************************************************************
+	 * Given an index, i, this method calculates the frequency of 
+	 * occurence for a particular attribute value and stores that
+	 * frequency in a hashmap for easy look up later. To test, call
+	 * printClassCounts2 with the output from this method to see
+	 * the frequencies and their respective attribute values. This
+	 * method is essentially a modified version of countClasses() 
+	 * below.
+	 *************************************************************/
 	
 	public HashMap<String, AttributeInfo> getAttributeValueOccurences(int index){
 		HashMap<String, AttributeInfo> attrs = new HashMap<String, AttributeInfo>();
@@ -78,22 +183,35 @@ public class ClassificationTree {
 		return attrs;
 	}
 	
+	/**************************************************************
+	 * Calculate entropy for all of the classes in the data set.
+	 *************************************************************/
+	
 	public void calculateTotalEntropy(){
 		Iterator<Map.Entry<String, Integer>> it = classCounts.entrySet().iterator();
 		while(it.hasNext()){
 			Map.Entry<String, Integer> pair = (Map.Entry<String,Integer>) it.next();
-			double val = ((-1)*((double)pair.getValue())/((double)fileAsArray.size()));
-			double log = Math.log((-1.0)*val)/Math.log(2);
-			totalEntropy+=(val*log);
+			double val = (((double)pair.getValue())/((double)fileAsArray.size()));
+			double log = Math.log(val)/Math.log(2.0);
+			totalEntropy-=(val*log);
 		}
 	}
 	
+	/**************************************************************
+	 * Initialized features available to be used. i.e all features
+	 * when tree is empty.
+	 *************************************************************/
+	
 	public void initializeFeaturesInPlay(){
 		String[] temp = fileAsArray.get(0);
-		for(int i = 0; i < temp.length; i++){
+		for(int i = 0; i < temp.length-1; i++){ // skip classification index
 			featuresInPlay.add(i);
 		}
 	}
+	
+	/**************************************************************
+	 * Calculates the dot product of two arrayslists.
+	 *************************************************************/
 	
 	public double dot(ArrayList<Double> arr1, ArrayList<Double> arr2){
 		double val = 0;
@@ -121,7 +239,20 @@ public class ClassificationTree {
 	}
 	
 	/**************************************************************************
-	 Count Occurrences of different classes.
+	 Fill Test File
+	**************************************************************************/
+	
+	public void fillTestFile(String path) throws IOException{
+		
+		Scanner fileScanner = new Scanner(new File(path));
+		while(fileScanner.hasNextLine()){
+			testFile.add(fileScanner.nextLine().trim().split(" "));
+		}
+		fileScanner.close();
+	}
+	
+	/**************************************************************************
+	 Count Occurrences of different classes. Have used in previous HWs
 	**************************************************************************/
 	
 	public void countClasses(){
@@ -135,7 +266,6 @@ public class ClassificationTree {
 				classCounts.put(fileAsArray.get(i)[fileAsArray.get(i).length-1], 1); // add class to map
 			}
 		}
-		//printClassCounts(); // prints class counts.
 	}
 
 	/**************************************************************
@@ -150,6 +280,18 @@ public class ClassificationTree {
 			System.out.println(pair.getKey() + " = " + pair.getValue());
 		}
 	}
+	
+	public void printClassCounts2(HashMap<String, AttributeInfo> map){ 
+		Iterator<Map.Entry<String, AttributeInfo>> it = map.entrySet().iterator();
+		while(it.hasNext()){
+			Map.Entry<String, AttributeInfo> pair = (Map.Entry<String,AttributeInfo>) it.next();
+			System.out.println(pair.getKey() + " = " + pair.getValue().count);
+		}
+	}
+	
+	/**************************************************************
+	 * Print String array nicely.
+	 *************************************************************/
 
 	public void printArray(String[] array){
 		for(String val : array){
