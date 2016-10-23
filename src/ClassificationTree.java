@@ -14,67 +14,39 @@ public class ClassificationTree {
 	
 	public static void main(String[] args) throws IOException {
 		String[] dataSets = {"abalone","car","machine","segmentation", "forest", "wineRed", "wineWhite"};
-		String[] setPaths = new String[5];
-		for(int j = 0; j < 5; j++){
-			setPaths[j] = "Data/"+dataSets[1]+"/Set"+(j+1)+".txt";
-		}
-		for(int i = 0; i < 5; i++){
-			ClassificationTree tree = new ClassificationTree();
-			tree.initializeTree(setPaths, i);
-			tree.setRootOfTree();
-			tree.rootNode.generateChildren();
-			for(String featureValue : tree.rootNode.children.keySet()){
-				Stack<Node> s = new Stack<Node>();
-				if(tree.rootNode.children.get(featureValue) != null){
-					s.push(tree.rootNode.children.get(featureValue));
-					while(!s.isEmpty()){
-						Node n = s.pop();
-						if(n == null){
-							continue;
-						}
-						n.generateChildren();
-						for(String key : n.children.keySet()){
-							if(n.children.get(key) != null){
-								s.push(n.children.get(key));
-							}
-						}
+			int[] array = {1,2,3,2,3,1,3};
+			int x = 0;
+			for(int val : array){
+				x^=val;
+				System.out.println(x);
+			}
+			System.out.println(x);
+			String[] setPaths = new String[5];
+			for(int j = 0; j < 5; j++){
+				setPaths[j] = "Data/"+dataSets[1]+"/Set"+(j+1)+".txt";
+			}
+			for(int i = 0; i < 5; i++){
+				ClassificationTree tree = new ClassificationTree();
+				tree.initializeTree(setPaths, i);
+				tree.setRootOfTree();
+				tree.generateSubTrees();
+				for(String key : tree.rootNode.children.keySet()){
+					for(String k1 : tree.rootNode.children.get(key).rootNode.children.keySet()){
+						tree.rootNode.children.get(key).rootNode.children.get(k1).generateSubTrees();
 					}
 				}
 			}
-			double count = 0;
-			for(String[] arr : tree.testFile){
-				if(tree.classify(arr)){
-					count++;
-				}
-			}
-			System.out.println(count/((double)tree.testFile.size()));
-		}
 	}
 	
-	public boolean classify(String[] queryPoint){
-		Node n = this.rootNode;
-		String c = "";
-		while(true){
-			if(n.classifications.containsKey(queryPoint[Integer.parseInt(n.featureIndex)])){
-				//System.out.println(n.classifications.get(queryPoint[Integer.parseInt(n.featureIndex)])+" ");
-				c = n.classifications.get(queryPoint[Integer.parseInt(n.featureIndex)]);
-				break;
-			}
-			n = n.children.get(queryPoint[Integer.parseInt(n.featureIndex)]);
-			if(n == null){
-				break;
-			}
-		}
-		if(queryPoint[queryPoint.length-1].equalsIgnoreCase(c)){
-			return true;
-		}
-		return false;
-	}
 	
-	public boolean isLeaf(Node n){
-		return (n.classifications.size() == 1) ? true : false;
+	public void generateSubTrees(){
+		System.out.print(rootNode.feature +" -> ");
+		for(String key : rootNode.children.keySet()){
+			rootNode.generateNewSubTree(this.fileAsArray, key, this.featuresInPlay);
+			System.out.print(rootNode.children.get(key).rootNode.feature + " ");
+		}
+		System.out.println();
 	}
-	
 	
 	public void initializeTree(String[] paths, int indexToSkip) throws IOException{
 		
@@ -104,9 +76,34 @@ public class ClassificationTree {
 			}
 		}
 		//System.out.println("The root of the tree is the feature at index: " + featureIndex);
-		//featuresInPlay.remove(featureIndex);
-		rootNode = new Node(Integer.toString(featureIndex),
-				getAttributeValueOccurences(featureIndex), fileAsArray, featuresInPlay);
+		rootNode = new Node(Integer.toString(featureIndex), getAttributeValueOccurences(featureIndex));
+		featuresInPlay.remove(featureIndex);
+		checkLeaves(rootNode);
+	}
+	
+	public void checkLeaves(Node n){
+		HashSet<String> set = new HashSet<String>();
+		for(String key : n.children.keySet()){
+			int i = 0;
+			while(i < testFile.size()){
+				if(testFile.get(i)[Integer.parseInt(n.feature)] == key){
+					if(set.contains(testFile.get(i)[testFile.get(i).length-1])){
+						i++;
+					}else{
+						set.add(testFile.get(i)[testFile.get(i).length-1]);
+						i++;
+					}
+				}
+				i++;
+			}
+			if(set.size() == 1){
+				for(String val : set){
+					n.classifications.put(key, val);
+					n.children.remove(key);
+				}
+				System.out.println(set.size());
+			}
+		}
 	}
 	
 	/**************************************************************
@@ -202,9 +199,7 @@ public class ClassificationTree {
 	
 	/**************************************************************
 	 * Initialized features available to be used. i.e all features
-	 * when tree is empty. This method returns the indexes of the
-	 * array that have the feature values. It ignores the class 
-	 * attribute at th end.
+	 * when tree is empty.
 	 *************************************************************/
 	
 	public void initializeFeaturesInPlay(){
@@ -261,19 +256,6 @@ public class ClassificationTree {
 	**************************************************************************/
 	
 	public void countClasses(){
-		//handle special cases.
-		for(int i = 0; i < fileAsArray.size(); i++){
-			if(classCounts.containsKey(fileAsArray.get(i)[fileAsArray.get(i).length-1])){ // hashmap contains class?
-				int currentVal = classCounts.get(fileAsArray.get(i)[fileAsArray.get(i).length-1]); // get current count
-				currentVal++; // increment count by 1
-				classCounts.put(fileAsArray.get(i)[fileAsArray.get(i).length-1], currentVal); //update map.
-			}else{
-				classCounts.put(fileAsArray.get(i)[fileAsArray.get(i).length-1], 1); // add class to map
-			}
-		}
-	}
-	
-	public void countClasses(ArrayList<String[]> fileAsArray){
 		//handle special cases.
 		for(int i = 0; i < fileAsArray.size(); i++){
 			if(classCounts.containsKey(fileAsArray.get(i)[fileAsArray.get(i).length-1])){ // hashmap contains class?
